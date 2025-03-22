@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import BottomNav from "@/components/BottomMenuBar";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,8 +27,20 @@ export default function RootLayout({
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        style={{
+          margin: 0,
+          padding: 0,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100vh",
+          maxWidth: "480px", // Limits the layout width for small devices
+          marginInline: "auto", // Centers content for mobile
+          overflowX: "hidden", // Prevents horizontal scrolling
+          position: "relative",
+        }}
       >
-        {children}
+        <main style={{ flex: 1, paddingBottom: "56px" }}>{children}</main> {/* Ensures content doesn't overlap the BottomNav */}
+        <BottomNav />
       </body>
     </html>
   );
