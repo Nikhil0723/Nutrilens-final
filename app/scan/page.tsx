@@ -19,10 +19,7 @@ import {
   Chip,
 } from "@mui/material";
 import { CameraAlt, Warning, Close, Refresh, Info } from "@mui/icons-material";
-import {
-  BrowserMultiFormatReader,
-  NotFoundException,
-} from "@zxing/library";
+import { BrowserMultiFormatReader, NotFoundException } from "@zxing/library";
 import axios from "axios";
 
 type ProductNutriments = {
@@ -79,17 +76,19 @@ export default function BarcodeScanner() {
 
   // Load recent scans from localStorage
   useEffect(() => {
-    const savedScans = localStorage.getItem("recentScans");
-    if (savedScans) {
-      try {
-        const parsedScans = JSON.parse(savedScans);
-        // Sort by most recent and limit to 10 items
-        const sortedScans = parsedScans
-          .sort((a: RecentScan, b: RecentScan) => b.date - a.date)
-          .slice(0, 10);
-        setRecentScans(sortedScans);
-      } catch (e) {
-        console.error("Failed to parse recent scans", e);
+    if (typeof window !== "undefined") {
+      // Ensure client-side execution
+      const savedScans = localStorage.getItem("recentScans");
+      if (savedScans) {
+        try {
+          const parsedScans = JSON.parse(savedScans);
+          const sortedScans = parsedScans
+            .sort((a: RecentScan, b: RecentScan) => b.date - a.date)
+            .slice(0, 10);
+          setRecentScans(sortedScans);
+        } catch (e) {
+          console.error("Failed to parse recent scans", e);
+        }
       }
     }
   }, []);
