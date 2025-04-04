@@ -1,502 +1,703 @@
 "use client";
-
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Box,
-  Typography,
-  Avatar,
-  Button,
-  Container,
-  Paper,
-  Chip,
   Card,
-  CardMedia,
   CardContent,
+  Typography,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  OutlinedInput,
+  Chip,
+  CircularProgress,
   Grid,
-  Skeleton,
+  Paper,
+  IconButton,
+  Divider,
+  Box,
+  useMediaQuery,
+  useTheme,
+  Alert,
+  SelectChangeEvent,
 } from "@mui/material";
 import {
-  Sync as SyncIcon,
-  SmartToy as SmartToyIcon,
-  Add as AddIcon,
+  ChevronLeft,
+  ChevronRight,
+  Settings,
+  Refresh,
 } from "@mui/icons-material";
+import dayjs from "dayjs";
+import weekday from "dayjs/plugin/weekday";
+import weekOfYear from "dayjs/plugin/weekOfYear";
 
-// Types
-interface Meal {
-  id: string;
-  type: string;
-  name: string;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  image: string;
-}
+// Import the fetchItinerary function
+import { fetchItinerary } from "./api/fetchItinerary"; // Adjust path as needed
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-interface DayPlan {
-  date: Date;
-  meals: Meal[] | [];
-}
+dayjs.extend(weekday);
+dayjs.extend(weekOfYear);
 
-// Sample data
-const MEALS_DATA: Record<string, Meal[]> = {
-  "2024-01-15": [
-    {
-      id: "b1",
-      type: "Breakfast",
-      name: "Greek Yogurt Bowl",
-      calories: 320,
-      protein: 18,
-      carbs: 42,
-      fat: 12,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "l1",
-      type: "Lunch",
-      name: "Quinoa Buddha Bowl",
-      calories: 520,
-      protein: 24,
-      carbs: 68,
-      fat: 18,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "d1",
-      type: "Dinner",
-      name: "Grilled Salmon",
-      calories: 440,
-      protein: 36,
-      carbs: 28,
-      fat: 22,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-  ],
-  "2024-01-16": [
-    {
-      id: "b2",
-      type: "Breakfast",
-      name: "Avocado Toast",
-      calories: 380,
-      protein: 12,
-      carbs: 48,
-      fat: 16,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "l2",
-      type: "Lunch",
-      name: "Chicken Caesar Salad",
-      calories: 450,
-      protein: 32,
-      carbs: 22,
-      fat: 24,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "d2",
-      type: "Dinner",
-      name: "Vegetable Stir Fry",
-      calories: 380,
-      protein: 18,
-      carbs: 42,
-      fat: 14,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-  ],
-  "2024-01-17": [],
-  "2024-01-18": [],
-  "2024-01-19": [
-    {
-      id: "b5",
-      type: "Breakfast",
-      name: "Protein Smoothie",
-      calories: 340,
-      protein: 24,
-      carbs: 38,
-      fat: 10,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "l5",
-      type: "Lunch",
-      name: "Mediterranean Wrap",
-      calories: 480,
-      protein: 22,
-      carbs: 58,
-      fat: 16,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-    {
-      id: "d5",
-      type: "Dinner",
-      name: "Eggplant Parmesan",
-      calories: 520,
-      protein: 24,
-      carbs: 46,
-      fat: 28,
-      image: "/placeholder.svg?height=200&width=400",
-    },
-  ],
+const allergiesList = ["Dairy", "Gluten", "Nuts", "Shellfish", "Soy", "Eggs"];
+const dietOptions = ["Vegetarian", "Vegan", "Keto", "Paleo", "Low-Carb"];
+
+type MealType = {
+  breakfast: string;
+  lunch: string;
+  dinner: string;
+  preferences?: {
+    diet: string;
+    allergies: string[];
+  };
 };
 
-// Generate week days
-const generateWeekDays = (): DayPlan[] => {
-  const today = new Date(2024, 0, 15); // Monday, January 15, 2024 (fixed date for demo)
-  const weekDays: DayPlan[] = [];
+type MealsState = Record<string, MealType>;
 
-  for (let i = 0; i < 5; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    const dateString = date.toISOString().split("T")[0];
+interface PreferencesType {
+  diet: string;
+  allergies: string[];
+}
 
-    weekDays.push({
-      date,
-      meals: MEALS_DATA[dateString] || null,
-    });
-  }
+const MealPlanner = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [selectedDay, setSelectedDay] = useState(dayjs().format("YYYY-MM-DD"));
+  const [meals, setMeals] = useState<MealsState>({});
+  const [openDialog, setOpenDialog] = useState(false);
+  const [preferences, setPreferences] = useState<PreferencesType>({
+    diet: "",
+    allergies: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [weekStart, setWeekStart] = useState(dayjs().startOf("week"));
+  const [error, setError] = useState("");
+  const [swappingMeal, setSwappingMeal] = useState<{
+    day: string;
+    mealType: string;
+  } | null>(null);
 
-  return weekDays;
-};
-
-// Diet types
-const dietTypes = ["All Meals", "Vegan", "Keto", "Budget"];
-
-export default function MealPlanner() {
-  const weekDays = generateWeekDays();
-  const [selectedDay, setSelectedDay] = useState<number>(0);
-  const [selectedDiet, setSelectedDiet] = useState<string>("All Meals");
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [generatedMeals, setGeneratedMeals] = useState<Record<string, Meal[]>>(
-    {}
+  const daysOfWeek = Array.from({ length: 7 }, (_, i) =>
+    weekStart.add(i, "day")
   );
 
-  // Format date for display
-  const formatDate = (date: Date): string => {
-    const options: Intl.DateTimeFormatOptions = {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
+  useEffect(() => {
+    const storedMeals = localStorage.getItem("meals");
+    if (storedMeals) {
+      try {
+        setMeals(JSON.parse(storedMeals));
+      } catch (e) {
+        console.error("Failed to parse stored meals", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("meals", JSON.stringify(meals));
+  }, [meals]);
+
+  const handleWeekNavigation = (direction: "prev" | "next") => {
+    setWeekStart((prev) =>
+      direction === "prev" ? prev.subtract(7, "day") : prev.add(7, "day")
+    );
+  };
+
+  const handleDayClick = (day: dayjs.Dayjs) => {
+    const formattedDay = day.format("YYYY-MM-DD");
+    setSelectedDay(formattedDay);
+    if (!meals[formattedDay]) setOpenDialog(true);
+  };
+
+  const handlePreferenceChange = (
+    event: SelectChangeEvent<string | string[]>
+  ) => {
+    const { name, value } = event.target;
+    setPreferences((prev) => ({
+      ...prev,
+      [name]: Array.isArray(value) ? value : value,
+    }));
+  };
+
+  const generateFallbackMeal = (mealType?: string) => {
+    let fallback = {
+      breakfast: "",
+      lunch: "",
+      dinner: "",
     };
-    return date.toLocaleDateString("en-US", options);
-  };
 
-  // Get day name
-  const getDayName = (date: Date): string => {
-    return date.toLocaleDateString("en-US", { weekday: "short" });
-  };
-
-  // Handle day selection
-  const handleDaySelect = (index: number) => {
-    setSelectedDay(index);
-  };
-
-  // Handle diet selection
-  const handleDietSelect = (diet: string) => {
-    setSelectedDiet(diet);
-  };
-
-  // Generate meals for a day
-  const handleGenerateMeals = () => {
-    setIsGenerating(true);
-
-    // Simulate API call with timeout
-    setTimeout(() => {
-      const currentDate = weekDays[selectedDay].date;
-      const dateString = currentDate.toISOString().split("T")[0];
-
-      // Sample generated meals
-      const newMeals: Meal[] = [
-        {
-          id: `b-gen-${dateString}`,
-          type: "Breakfast",
-          name: "Oatmeal with Berries",
-          calories: 310,
-          protein: 14,
-          carbs: 52,
-          fat: 8,
-          image: "/placeholder.svg?height=200&width=400",
-        },
-        {
-          id: `l-gen-${dateString}`,
-          type: "Lunch",
-          name: "Lentil Soup with Bread",
-          calories: 420,
-          protein: 18,
-          carbs: 64,
-          fat: 12,
-          image: "/placeholder.svg?height=200&width=400",
-        },
-        {
-          id: `d-gen-${dateString}`,
-          type: "Dinner",
-          name: "Baked Chicken with Vegetables",
-          calories: 480,
-          protein: 38,
-          carbs: 32,
-          fat: 18,
-          image: "/placeholder.svg?height=200&width=400",
-        },
-      ];
-
-      setGeneratedMeals((prev) => ({
-        ...prev,
-        [dateString]: newMeals,
-      }));
-
-      setIsGenerating(false);
-    }, 1500);
-  };
-
-  // Get meals for selected day
-  const getMealsForSelectedDay = (): Meal[] | null => {
-    const currentDate = weekDays[selectedDay].date;
-    const dateString = currentDate.toISOString().split("T")[0];
-
-    // Check if we have generated meals for this day
-    if (generatedMeals[dateString]) {
-      return generatedMeals[dateString];
+    // If swapping a specific meal, only generate for that type
+    if (mealType) {
+      const newMeal = generateSingleMeal(mealType);
+      return { ...fallback, [mealType]: newMeal };
     }
 
-    // Otherwise return the original meals (or null)
-    return weekDays[selectedDay].meals;
+    // Breakfast options
+    if (preferences.allergies.includes("Eggs")) {
+      fallback.breakfast =
+        preferences.diet === "Vegan"
+          ? "Oatmeal with almond milk and berries"
+          : "Avocado toast with sunflower seeds";
+    } else {
+      fallback.breakfast =
+        preferences.diet === "Vegan"
+          ? "Chia pudding with coconut milk"
+          : "Scrambled eggs with whole wheat toast";
+    }
+
+    // Lunch options
+    if (preferences.diet === "Vegan") {
+      fallback.lunch = "Lentil soup with gluten-free bread";
+    } else if (preferences.diet === "Vegetarian") {
+      fallback.lunch = "Quinoa salad with feta and vegetables";
+    } else {
+      fallback.lunch = "Grilled chicken with roasted vegetables";
+    }
+
+    // Dinner options
+    if (preferences.diet === "Keto") {
+      fallback.dinner = "Salmon with asparagus and cauliflower mash";
+    } else if (preferences.diet === "Vegan") {
+      fallback.dinner = "Chickpea curry with rice";
+    } else {
+      fallback.dinner = "Vegetable stir-fry with tofu";
+    }
+
+    return fallback;
   };
 
-  // Current day's meals
-  const currentDayMeals = getMealsForSelectedDay();
+  const generateSingleMeal = (mealType: string) => {
+    const options: Record<string, string[]> = {
+      breakfast: [
+        "Oatmeal with fruits",
+        "Yogurt with granola",
+        "Avocado toast",
+        "Smoothie bowl",
+        "Pancakes with maple syrup",
+      ],
+      lunch: [
+        "Quinoa salad",
+        "Grilled chicken wrap",
+        "Vegetable soup",
+        "Pasta primavera",
+        "Burrito bowl",
+      ],
+      dinner: [
+        "Salmon with vegetables",
+        "Stir-fried tofu",
+        "Beef stew",
+        "Vegetable lasagna",
+        "Shrimp tacos",
+      ],
+    };
+
+    // Filter based on preferences
+    let filteredOptions = [...options[mealType]].filter((option) => {
+      // Check diet
+      if (
+        preferences.diet === "Vegan" &&
+        (option.toLowerCase().includes("chicken") ||
+          option.toLowerCase().includes("beef") ||
+          option.toLowerCase().includes("shrimp") ||
+          option.toLowerCase().includes("yogurt") ||
+          option.toLowerCase().includes("salmon"))
+      ) {
+        return false;
+      }
+      if (
+        preferences.diet === "Vegetarian" &&
+        (option.toLowerCase().includes("chicken") ||
+          option.toLowerCase().includes("beef") ||
+          option.toLowerCase().includes("shrimp") ||
+          option.toLowerCase().includes("salmon"))
+      ) {
+        return false;
+      }
+      // Check allergies
+      for (const allergy of preferences.allergies) {
+        if (option.toLowerCase().includes(allergy.toLowerCase())) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // If no options left after filtering, provide a safe fallback
+    if (filteredOptions.length === 0) {
+      return generateFallbackSingleMeal(mealType);
+    }
+    return filteredOptions[Math.floor(Math.random() * filteredOptions.length)];
+  };
+
+  const generateFallbackSingleMeal = (mealType: string) => {
+    const fallbackOptions = {
+      breakfast: {
+        default: "Oatmeal with fruits",
+        vegan: "Chia pudding with berries",
+        vegetarian: "Whole grain toast with avocado",
+        keto: "Avocado and spinach omelet",
+        paleo: "Mixed fruit bowl with nuts",
+        lowCarb: "Greek yogurt with berries",
+      },
+      lunch: {
+        default: "Mixed greens salad",
+        vegan: "Hummus and vegetable wrap",
+        vegetarian: "Quinoa bowl with roasted vegetables",
+        keto: "Cauliflower rice with vegetables",
+        paleo: "Sweet potato and vegetable hash",
+        lowCarb: "Vegetable soup with leafy greens",
+      },
+      dinner: {
+        default: "Vegetable stir-fry",
+        vegan: "Lentil and vegetable curry",
+        vegetarian: "Eggplant parmesan",
+        keto: "Zucchini noodles with pesto",
+        paleo: "Roasted vegetables with herbs",
+        lowCarb: "Cauliflower crust pizza with vegetables",
+      },
+    };
+
+    const dietKey = preferences.diet
+      ? preferences.diet.toLowerCase().replace("-", "")
+      : "default";
+
+    return (
+      fallbackOptions[mealType as keyof typeof fallbackOptions][
+        dietKey as keyof (typeof fallbackOptions)[typeof mealType]
+      ] || fallbackOptions[mealType as keyof typeof fallbackOptions].default
+    );
+  };
+
+  const generateMeal = async (options?: { day: string; mealType?: string }) => {
+    const targetDay = options?.day || selectedDay;
+    const mealType = options?.mealType;
+    if (!targetDay) return;
+  
+    setLoading(true);
+    setError("");
+    setSwappingMeal(mealType ? { day: targetDay, mealType } : null);
+  
+    try {
+      const genAI = new GoogleGenerativeAI("AIzaSyB-2vOKWlzqb-G0GmhL0nEx7kqplpCnWFE");
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.0-flash",
+      });
+  
+      const dietPrompt = preferences.diet ? `${preferences.diet} diet` : "any diet";
+      const allergyPrompt = preferences.allergies.length > 0 
+        ? `avoiding ${preferences.allergies.join(", ")}`
+        : "no allergy restrictions";
+      const mealTypePrompt = mealType 
+        ? `a ${mealType} meal`
+        : "breakfast, lunch and dinner meals";
+  
+      const prompt = `Generate ${mealTypePrompt} for ${dietPrompt} ${allergyPrompt}.
+        Never include ${preferences.allergies.length > 0 ? preferences.allergies.join(", ") : "any allergens"}.
+        Respond ONLY with this plain JSON format (no markdown, no code blocks, just the raw JSON):
+        {
+          "breakfast": "meal suggestion",
+          "lunch": "meal suggestion",
+          "dinner": "meal suggestion"
+        }`;
+  
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+  
+      // Clean the response before parsing
+      let cleanedText = text.trim();
+      
+      // Remove markdown code blocks if present
+      if (cleanedText.startsWith('```json')) {
+        cleanedText = cleanedText.slice(7);
+      }
+      if (cleanedText.startsWith('```')) {
+        cleanedText = cleanedText.slice(3);
+      }
+      if (cleanedText.endsWith('```')) {
+        cleanedText = cleanedText.slice(0, -3);
+      }
+      
+      // Parse the cleaned response
+      let generatedMeals;
+      try {
+        generatedMeals = JSON.parse(cleanedText);
+      } catch (e) {
+        console.error("Failed to parse AI response:", e, "Text was:", cleanedText);
+        // Fallback to local generation if AI fails
+        generatedMeals = generateFallbackMeal(mealType);
+      }
+  
+      // Update the meals state
+      if (mealType) {
+        // Update single meal
+        setMeals(prev => ({
+          ...prev,
+          [targetDay]: {
+            ...prev[targetDay],
+            [mealType]: generatedMeals[mealType],
+            preferences
+          }
+        }));
+      } else {
+        // Update all meals for the day
+        setMeals(prev => ({
+          ...prev,
+          [targetDay]: {
+            ...generatedMeals,
+            preferences
+          }
+        }));
+      }
+  
+    } catch (error) {
+      console.error("Error generating meal:", error);
+      setError("Failed to generate meal. Using fallback options.");
+      // Fallback to local generation
+      const fallbackMeals = generateFallbackMeal(mealType);
+      if (mealType) {
+        setMeals(prev => ({
+          ...prev,
+          [targetDay]: {
+            ...prev[targetDay],
+            [mealType]: fallbackMeals[mealType as keyof typeof fallbackMeals],
+            preferences
+          }
+        }));
+      } else {
+        setMeals(prev => ({
+          ...prev,
+          [targetDay]: {
+            ...fallbackMeals,
+            preferences
+          }
+        }));
+      }
+    } finally {
+      setLoading(false);
+      if (!mealType) {
+        setOpenDialog(false);
+      }
+    }
+  };
+
+  const handleSwapMeal = (day: string, mealType: string) => {
+    setSwappingMeal({ day, mealType });
+    generateMeal({ day, mealType });
+  };
 
   return (
-    <Container
-      maxWidth="sm"
-      sx={{ pb: 8, bgcolor: "#f5f5f7", minHeight: "100vh" }}
+    <Box
+      sx={{
+        p: isMobile ? 1 : 3,
+        maxWidth: 1200,
+        margin: "0 auto",
+        pb: isMobile ? 8 : 3,
+      }}
     >
-      {/* Header */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
+          {error}
+        </Alert>
+      )}
       <Box
         sx={{
-          pt: 2,
-          pb: 1,
-          px: 2,
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          mb: isMobile ? 2 : 4,
+          gap: 2,
         }}
       >
-        <Typography variant="h5" fontWeight={700}>
-          MealMind
+        <Typography variant={isMobile ? "h6" : "h5"}>
+          Weekly Meal Planner
         </Typography>
-        <Avatar src="/placeholder.svg?height=40&width=40" alt="User" />
+        <IconButton
+          onClick={() => setOpenDialog(true)}
+          size={isMobile ? "small" : "medium"}
+        >
+          <Settings fontSize={isMobile ? "small" : "medium"} />
+        </IconButton>
       </Box>
-
-      {/* AI Suggestion Button */}
-      <Box sx={{ px: 2, mb: 2 }}>
-        <Button
-          variant="contained"
-          fullWidth
-          startIcon={<SmartToyIcon />}
+      {/* Week Navigation */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          mb: isMobile ? 1 : 2,
+        }}
+      >
+        <IconButton
+          onClick={() => handleWeekNavigation("prev")}
+          size={isMobile ? "small" : "medium"}
+        >
+          <ChevronLeft fontSize={isMobile ? "small" : "medium"} />
+        </IconButton>
+        <Typography variant={isMobile ? "body2" : "body1"} sx={{ mx: 1 }}>
+          {weekStart.format("MMM D")} -{" "}
+          {weekStart.add(6, "day").format("MMM D")}
+        </Typography>
+        <IconButton
+          onClick={() => handleWeekNavigation("next")}
+          size={isMobile ? "small" : "medium"}
+        >
+          <ChevronRight fontSize={isMobile ? "small" : "medium"} />
+        </IconButton>
+      </Box>
+      {/* Horizontal scroll for days */}
+      <Box
+        sx={{
+          display: "flex",
+          overflowX: "auto",
+          gap: 1,
+          pb: 1,
+          mx: isMobile ? -1 : 0,
+          px: isMobile ? 1 : 0,
+          scrollSnapType: "x mandatory",
+          "& > *": {
+            scrollSnapAlign: "start",
+            flexShrink: 0,
+          },
+        }}
+      >
+        {daysOfWeek.map((day) => {
+          const formattedDate = day.format("YYYY-MM-DD");
+          const hasMeal = !!meals[formattedDate];
+          const isSelected = formattedDate === selectedDay;
+          return (
+            <Paper
+              key={formattedDate}
+              onClick={() => handleDayClick(day)}
+              sx={{
+                p: 1,
+                minWidth: 70,
+                cursor: "pointer",
+                border: (theme) =>
+                  `2px solid ${
+                    isSelected ? theme.palette.primary.main : "transparent"
+                  }`,
+                bgcolor: hasMeal ? "action.selected" : "background.default",
+                textAlign: "center",
+              }}
+            >
+              <Typography variant="body2" fontWeight={isSelected ? 600 : 400}>
+                {day.format("ddd")}
+              </Typography>
+              <Typography
+                variant={isSelected ? "body1" : "body2"}
+                fontWeight={isSelected ? 700 : 400}
+              >
+                {day.format("D")}
+              </Typography>
+            </Paper>
+          );
+        })}
+      </Box>
+      {/* Meal Display */}
+      {selectedDay && meals[selectedDay] && (
+        <Paper
           sx={{
-            bgcolor: "#f0e6ff",
-            color: "#8a3ffc",
-            textTransform: "none",
-            borderRadius: 28,
-            py: 1.5,
-            "&:hover": {
-              bgcolor: "#e6d9ff",
-            },
+            p: isMobile ? 1 : 2,
+            mt: isMobile ? 2 : 3,
+            borderRadius: 2,
           }}
         >
-          Ask AI for meal suggestions
-        </Button>
-      </Box>
-
-      {/* Diet Type Filters */}
-      <Box
-        sx={{ px: 2, mb: 3, display: "flex", gap: 1, overflowX: "auto", pb: 1 }}
-      >
-        {dietTypes.map((diet) => (
-          <Chip
-            key={diet}
-            label={diet}
-            onClick={() => handleDietSelect(diet)}
-            sx={{
-              bgcolor: selectedDiet === diet ? "#8a3ffc" : "#f5f5f7",
-              color: selectedDiet === diet ? "white" : "text.primary",
-              borderRadius: 16,
-              px: 1,
-              "&:hover": {
-                bgcolor: selectedDiet === diet ? "#7b2ff2" : "#e0e0e0",
-              },
-            }}
-          />
-        ))}
-      </Box>
-
-      {/* Today's Meals */}
-      <Box sx={{ px: 2, mb: 3 }}>
-        <Typography variant="h6" fontWeight={600} sx={{ mb: 0.5 }}>
-          Today&apos;s Meals
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {formatDate(weekDays[selectedDay].date)}
-        </Typography>
-
-        {isGenerating ? (
-          // Loading state
-          <Box sx={{ mb: 3 }}>
-            {[1, 2, 3].map((item) => (
-              <Card
-                key={item}
-                sx={{ mb: 2, borderRadius: 2, overflow: "hidden" }}
-              >
-                <Skeleton variant="rectangular" height={200} />
-                <CardContent>
-                  <Skeleton variant="text" width="30%" height={30} />
-                  <Skeleton variant="text" width="60%" height={30} />
-                  <Skeleton variant="text" width="80%" height={24} />
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        ) : currentDayMeals ? (
-          // Meals display
-          <Box>
-            {currentDayMeals.map((meal) => (
-              <Card
-                key={meal.id}
-                sx={{ mb: 2, borderRadius: 2, overflow: "hidden" }}
-              >
-                <CardMedia
-                  component="img"
-                  height="200"
-                  image={meal.image}
-                  alt={meal.name}
-                />
-                <CardContent sx={{ pb: 2 }}>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      mb: 1,
-                    }}
-                  >
-                    <Typography variant="body2" color="text.secondary">
-                      {meal.type}
-                    </Typography>
-                    <Button
-                      startIcon={<SyncIcon />}
-                      sx={{
-                        color: "#8a3ffc",
-                        textTransform: "none",
-                        p: 0,
-                      }}
-                    >
-                      Swap
-                    </Button>
-                  </Box>
-                  <Typography variant="h6" sx={{ mb: 1 }}>
-                    {meal.name}
-                  </Typography>
-                  <Box sx={{ display: "flex", gap: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {meal.calories} kcal
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {meal.protein}g protein
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {meal.carbs}g carbs
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {meal.fat}g fat
-                    </Typography>
-                  </Box>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        ) : (
-          // No meals - generate option
           <Box
             sx={{
               display: "flex",
-              flexDirection: "column",
+              justifyContent: "space-between",
               alignItems: "center",
-              py: 6,
+              mb: 1,
+              flexDirection: isMobile ? "column" : "row",
+              alignItems: isMobile ? "flex-start" : "center",
             }}
           >
-            <Box sx={{ mb: 2, color: "#8a3ffc" }}>
-              <AddIcon sx={{ fontSize: 48 }} />
-            </Box>
-            <Typography variant="h6" sx={{ mb: 1, textAlign: "center" }}>
-              No meals planned for this day
-            </Typography>
             <Typography
-              variant="body2"
-              color="text.secondary"
-              sx={{ mb: 3, textAlign: "center" }}
+              variant={isMobile ? "subtitle1" : "h6"}
+              sx={{ mb: isMobile ? 1 : 0 }}
             >
-              Generate a meal plan based on your preferences
+              {dayjs(selectedDay).format("dddd, MMM D")}
             </Typography>
-            <Button
-              variant="contained"
-              onClick={handleGenerateMeals}
+            <Box
               sx={{
-                bgcolor: "#8a3ffc",
-                color: "white",
-                textTransform: "none",
-                borderRadius: 28,
-                px: 4,
-                py: 1,
-                "&:hover": {
-                  bgcolor: "#7b2ff2",
-                },
+                display: "flex",
+                gap: 0.5,
+                flexWrap: "wrap",
+                justifyContent: isMobile ? "flex-start" : "flex-end",
               }}
             >
-              Generate Meal Plan
-            </Button>
+              {meals[selectedDay].preferences?.diet && (
+                <Chip
+                  label={meals[selectedDay].preferences?.diet}
+                  size="small"
+                  sx={{ mb: isMobile ? 0.5 : 0 }}
+                />
+              )}
+              {meals[selectedDay].preferences?.allergies.map((allergy) => (
+                <Chip
+                  key={allergy}
+                  label={allergy}
+                  size="small"
+                  variant="outlined"
+                  sx={{ mb: isMobile ? 0.5 : 0 }}
+                />
+              ))}
+            </Box>
           </Box>
-        )}
-      </Box>
-
-      {/* Week Plan */}
-      <Box sx={{ px: 2, mb: 3 }}>
-        <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-          Week Plan
-        </Typography>
-        <Grid container spacing={1}>
-          {weekDays.map((day, index) => (
-            <Grid item xs={2.4} key={index}>
-              <Paper
-                elevation={0}
-                onClick={() => handleDaySelect(index)}
-                sx={{
-                  p: 1,
-                  textAlign: "center",
-                  borderRadius: 2,
-                  border: "1px solid",
-                  borderColor: selectedDay === index ? "#8a3ffc" : "#e0e0e0",
-                  bgcolor: selectedDay === index ? "#f5f0ff" : "white",
-                  cursor: "pointer",
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  "&:hover": {
-                    borderColor: "#8a3ffc",
-                  },
-                }}
-              >
-                <Typography variant="body2" color="text.secondary">
-                  {getDayName(day.date)}
-                </Typography>
-                <Typography variant="h6" fontWeight={600}>
-                  {day.date.getDate()}
-                </Typography>
-              </Paper>
-            </Grid>
-          ))}
-        </Grid>
-      </Box>
-    </Container>
+          <Divider sx={{ my: 1 }} />
+          <Grid container spacing={isMobile ? 1 : 2}>
+            {["breakfast", "lunch", "dinner"].map((mealType) => (
+              <Grid item xs={12} key={mealType} sx={{ mb: isMobile ? 1 : 0 }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    p: 1,
+                    height: "100%",
+                    borderLeft: isMobile
+                      ? `4px solid ${theme.palette.primary.main}`
+                      : "none",
+                    position: "relative",
+                  }}
+                >
+                  <CardContent
+                    sx={{
+                      p: isMobile
+                        ? "8px 8px 8px 4px !important"
+                        : "8px !important",
+                      "&:last-child": {
+                        pb: isMobile ? "8px !important" : "8px !important",
+                      },
+                      pr: isMobile ? 6 : 8,
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+                    </Typography>
+                    <Typography variant="body2">
+                      {meals[selectedDay][mealType as keyof MealType]}
+                    </Typography>
+                  </CardContent>
+                  <IconButton
+                    onClick={() => handleSwapMeal(selectedDay, mealType)}
+                    disabled={loading && swappingMeal?.mealType === mealType}
+                    size="small"
+                    sx={{
+                      position: "absolute",
+                      right: 4,
+                      top: 4,
+                      color: theme.palette.primary.main,
+                    }}
+                  >
+                    {loading && swappingMeal?.mealType === mealType ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      <Refresh fontSize="small" />
+                    )}
+                  </IconButton>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        </Paper>
+      )}
+      {/* Preferences Dialog */}
+      <Dialog
+        open={openDialog}
+        onClose={() => !loading && setOpenDialog(false)}
+        fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Meal Preferences</DialogTitle>
+        <DialogContent
+          sx={{
+            minWidth: isMobile ? "auto" : 300,
+            pt: isMobile ? 2 : 1,
+          }}
+        >
+          <FormControl fullWidth sx={{ my: 1 }}>
+            <InputLabel id="diet-label">Diet</InputLabel>
+            <Select
+              labelId="diet-label"
+              name="diet"
+              value={preferences.diet}
+              onChange={handlePreferenceChange}
+              size={isMobile ? "medium" : "small"}
+              label="Diet"
+            >
+              <MenuItem value="">None</MenuItem>
+              {dietOptions.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth sx={{ my: 2 }}>
+            <InputLabel id="allergies-label">Allergies</InputLabel>
+            <Select
+              labelId="allergies-label"
+              multiple
+              name="allergies"
+              value={preferences.allergies}
+              onChange={handlePreferenceChange}
+              input={
+                <OutlinedInput
+                  label="Allergies"
+                  size={isMobile ? "medium" : "small"}
+                />
+              }
+              renderValue={(selected) => (
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                  {selected.map((value) => (
+                    <Chip
+                      key={value}
+                      label={value}
+                      size={isMobile ? "medium" : "small"}
+                    />
+                  ))}
+                </Box>
+              )}
+            >
+              {allergiesList.map((allergy) => (
+                <MenuItem key={allergy} value={allergy}>
+                  {allergy}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions
+          sx={{
+            p: isMobile ? 2 : 1,
+            pb: isMobile ? 3 : 1,
+          }}
+        >
+          <Button
+            onClick={() => setOpenDialog(false)}
+            disabled={loading}
+            size={isMobile ? "medium" : "small"}
+            sx={{ mr: 1 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => generateMeal()}
+            disabled={loading}
+            size={isMobile ? "medium" : "small"}
+            startIcon={
+              loading ? <CircularProgress size={isMobile ? 20 : 16} /> : null
+            }
+          >
+            Generate
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
-}
+};
+
+export default MealPlanner;
